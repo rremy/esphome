@@ -81,6 +81,11 @@ static const char *iir_filter_to_str(BME280IIRFilter filter) {
 void BME280Component::setup() {
   ESP_LOGCONFIG(TAG, "Setting up BME280...");
   uint8_t chip_id = 0;
+
+  // Mark as not failed before initializing. Some devices will turn off sensors to save on batteries
+  // and when they come back on, the COMPONENT_STATE_FAILED bit must be unset on the component.
+  this->component_state_ &= ~COMPONENT_STATE_FAILED;
+
   if (!this->read_byte(BME280_REGISTER_CHIPID, &chip_id)) {
     this->error_code_ = COMMUNICATION_FAILED;
     this->mark_failed();
@@ -201,7 +206,7 @@ void BME280Component::update() {
     float pressure = this->read_pressure_(data, t_fine);
     float humidity = this->read_humidity_(data, t_fine);
 
-    ESP_LOGD(TAG, "Got temperature=%.1f°C pressure=%.1fhPa humidity=%.1f%%", temperature, pressure, humidity);
+    ESP_LOGV(TAG, "Got temperature=%.1f°C pressure=%.1fhPa humidity=%.1f%%", temperature, pressure, humidity);
     if (this->temperature_sensor_ != nullptr)
       this->temperature_sensor_->publish_state(temperature);
     if (this->pressure_sensor_ != nullptr)
@@ -214,9 +219,10 @@ void BME280Component::update() {
 float BME280Component::read_temperature_(const uint8_t *data, int32_t *t_fine) {
   int32_t adc = ((data[3] & 0xFF) << 16) | ((data[4] & 0xFF) << 8) | (data[5] & 0xFF);
   adc >>= 4;
-  if (adc == 0x80000)
+  if (adc == 0x80000) {
     // temperature was disabled
     return NAN;
+  }
 
   const int32_t t1 = this->calibration_.t1;
   const int32_t t2 = this->calibration_.t2;
@@ -233,9 +239,10 @@ float BME280Component::read_temperature_(const uint8_t *data, int32_t *t_fine) {
 float BME280Component::read_pressure_(const uint8_t *data, int32_t t_fine) {
   int32_t adc = ((data[0] & 0xFF) << 16) | ((data[1] & 0xFF) << 8) | (data[2] & 0xFF);
   adc >>= 4;
-  if (adc == 0x80000)
+  if (adc == 0x80000) {
     // pressure was disabled
     return NAN;
+  }
   const int64_t p1 = this->calibration_.p1;
   const int64_t p2 = this->calibration_.p2;
   const int64_t p3 = this->calibration_.p3;
